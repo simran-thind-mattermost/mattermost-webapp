@@ -27,9 +27,9 @@ interface State {
 }
 
 export default class ErrorPage extends React.PureComponent<Props, State> {
-
     public componentDidMount() {
         document.body.setAttribute('class', 'sticky error');
+
         // let enc = new TextEncoder();
         // return enc.encode('message');
 
@@ -48,10 +48,15 @@ export default class ErrorPage extends React.PureComponent<Props, State> {
                     extractable: false,
                     type: 'public' as any,
                     usages: [],
+                };
+                try {
+                    window.crypto.subtle.verify('sha256', theKey, signature as any, new TextEncoder().encode('/error?' + params.toString())).then((trustParams: boolean) => {
+                        this.setState({trustParams});
+                    });
+                } catch (e) {
+                    // eslint-disable-next-line no-console
+                    console.error('Error using crypto', e);
                 }
-                window.crypto.subtle.verify('sha256', theKey, signature as any, new TextEncoder().encode('/error?' + params.toString())).then((trustParams: boolean) => {
-                    this.setState({trustParams});
-                });
             }
         }
     }

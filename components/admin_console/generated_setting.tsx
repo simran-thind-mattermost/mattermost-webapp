@@ -38,8 +38,8 @@ export default class GeneratedSetting extends React.PureComponent<Props> {
 
         this.props.onChange(
             this.props.id,
-            window.btoa([...window.crypto.getRandomValues(new Uint8ClampedArray(256))].map(x => String.fromCharCode(x)).join()).substring(0,32)
-        )
+            window.btoa([...window.crypto.getRandomValues(new Uint8ClampedArray(256))].map((x) => String.fromCharCode(x)).join()).substring(0, 32),
+        );
     }
 
     public render() {
