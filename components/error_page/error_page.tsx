@@ -1,8 +1,6 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import crypto from 'crypto';
-
 import React from 'react';
 import {FormattedMessage} from 'react-intl';
 import {Link} from 'react-router-dom';
@@ -24,9 +22,38 @@ type Props = {
     isGuest?: boolean;
 }
 
-export default class ErrorPage extends React.PureComponent<Props> {
+interface State {
+    trustParams?: boolean;
+}
+
+export default class ErrorPage extends React.PureComponent<Props, State> {
+
     public componentDidMount() {
         document.body.setAttribute('class', 'sticky error');
+        // let enc = new TextEncoder();
+        // return enc.encode('message');
+
+        const params: URLSearchParams = new URLSearchParams(this.props.location.search);
+        const signature = params.get('s');
+        if (signature) {
+            params.delete('s');
+
+            if (window.crypto.subtle) {
+                //const key = this.props.asymmetricSigningPublicKey;
+                //const keyPEM = '-----BEGIN PUBLIC KEY-----\n' + key + '\n-----END PUBLIC KEY-----';
+                const theKey = {
+                    algorithm: {
+                        name: 'pem',
+                    },
+                    extractable: false,
+                    type: 'public' as any,
+                    usages: [],
+                }
+                window.crypto.subtle.verify('sha256', theKey, signature as any, new TextEncoder().encode('/error?' + params.toString())).then((trustParams: boolean) => {
+                    this.setState({trustParams});
+                });
+            }
+        }
     }
 
     public componentWillUnmount() {
@@ -36,25 +63,12 @@ export default class ErrorPage extends React.PureComponent<Props> {
     public render() {
         const {isGuest} = this.props;
         const params: URLSearchParams = new URLSearchParams(this.props.location.search);
-        const signature = params.get('s');
-
-        let trustParams = false;
-        if (signature) {
-            params.delete('s');
-
-            const key = this.props.asymmetricSigningPublicKey;
-            const keyPEM = '-----BEGIN PUBLIC KEY-----\n' + key + '\n-----END PUBLIC KEY-----';
-
-            const verify = crypto.createVerify('sha256');
-            verify.update('/error?' + params.toString());
-            trustParams = verify.verify(keyPEM, signature, 'base64');
-        }
 
         const type = params.get('type');
-        const title = (trustParams && params.get('title')) || '';
-        const message = (trustParams && params.get('message')) || '';
-        const service = (trustParams && params.get('service')) || '';
-        const returnTo = (trustParams && params.get('returnTo')) || '';
+        const title = (this.state.trustParams && params.get('title')) || '';
+        const message = (this.state.trustParams && params.get('message')) || '';
+        const service = (this.state.trustParams && params.get('service')) || '';
+        const returnTo = (this.state.trustParams && params.get('returnTo')) || '';
 
         let backButton;
         if (type === ErrorPageTypes.PERMALINK_NOT_FOUND && returnTo) {

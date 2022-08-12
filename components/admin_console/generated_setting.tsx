@@ -1,8 +1,6 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import crypto from 'crypto';
-
 import React from 'react';
 import {FormattedMessage} from 'react-intl';
 
@@ -38,7 +36,10 @@ export default class GeneratedSetting extends React.PureComponent<Props> {
     private regenerate = (e: React.MouseEvent) => {
         e.preventDefault();
 
-        this.props.onChange(this.props.id, crypto.randomBytes(256).toString('base64').substring(0, 32));
+        this.props.onChange(
+            this.props.id,
+            window.btoa([...window.crypto.getRandomValues(new Uint8ClampedArray(256))].map(x => String.fromCharCode(x)).join()).substring(0,32)
+        )
     }
 
     public render() {
