@@ -5,8 +5,6 @@
 import React, {LinkHTMLAttributes} from 'react';
 import {FormattedMessage, IntlShape} from 'react-intl';
 
-import cssVars from 'css-vars-ponyfill';
-
 import moment from 'moment';
 
 import Constants, {FileTypes, ValidationErrors} from 'utils/constants';
@@ -397,6 +395,16 @@ function dropAlpha(value: string): string {
 export function toRgbValues(hexStr: string): string {
     const rgbaStr = `${parseInt(hexStr.substr(1, 2), 16)}, ${parseInt(hexStr.substr(3, 2), 16)}, ${parseInt(hexStr.substr(5, 2), 16)}`;
     return rgbaStr;
+}
+
+function cssVars(variables: Record<string, string>) {
+    var hasVarChange = false;
+    var targetElm = document.documentElement;
+    Object.keys(variables).forEach((function(key: string) {
+        var varValue = variables[key];
+        hasVarChange = hasVarChange || varValue !== getComputedStyle(targetElm).getPropertyValue(key);
+        targetElm.style.setProperty(`--${key}`, varValue);
+    }));
 }
 
 export function applyTheme(theme: Theme) {
