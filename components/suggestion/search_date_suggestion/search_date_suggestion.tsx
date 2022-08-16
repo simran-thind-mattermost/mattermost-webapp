@@ -11,40 +11,10 @@ import Suggestion from '../suggestion.jsx';
 
 import 'react-day-picker/lib/style.css';
 
-import 'moment';
-
-const loadedLocales: Record<string, moment.Locale> = {};
-
-type Props = {
-    locale: string;
-}
-
 export default class SearchDateSuggestion extends Suggestion {
     handleDayClick = (day: Date) => {
         const dayString = day.toISOString().split('T')[0];
         this.props.onClick(dayString, this.props.matchedPretext);
-    }
-
-    componentDidMount() {
-        //the naming scheme of momentjs packages are all lowercases
-        const locale = this.props.locale.toLowerCase();
-
-        // Momentjs use en as defualt, no need to import en
-        if (locale && locale !== 'en' && !loadedLocales[locale]) {
-            /* eslint-disable global-require */
-            loadedLocales[locale] = require(`moment/locale/${locale}`);
-            /* eslint-disable global-require */
-        }
-    }
-
-    componentDidUpdate(prevProps: Props) {
-        const locale = this.props.locale.toLowerCase();
-
-        if (locale && locale !== 'en' && locale !== prevProps.locale && !loadedLocales[locale]) {
-            /* eslint-disable global-require */
-            loadedLocales[locale] = require(`moment/locale/${locale}`);
-            /* eslint-disable global-require */
-        }
     }
 
     render() {

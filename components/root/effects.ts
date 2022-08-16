@@ -9,6 +9,9 @@ import {getUserCurrentTimezone} from 'mattermost-redux/utils/timezone_utils';
 import {getCurrentUserId} from 'mattermost-redux/selectors/entities/users';
 import {makeGetUserTimezone} from 'mattermost-redux/selectors/entities/timezone';
 import {GlobalState} from 'types/store';
+import moment from 'moment';
+
+const loadedLocales: Record<string, moment.Locale> = {};
 
 let prevTimezone: string | undefined;
 let prevLocale: string | undefined;
@@ -17,13 +20,20 @@ export function applyLuxonDefaults(state: GlobalState) {
     if (locale !== prevLocale) {
         prevLocale = locale;
         Settings.defaultLocale = locale;
+
+        const localeLower = locale.toLowerCase();
+        if (localeLower !== 'en') {
+            /* eslint-disable global-require */
+            loadedLocales[locale] = require(`moment/locale/${locale}`);
+            /* eslint-disable global-require */
+        }
     }
 
     if (areTimezonesEnabledAndSupported(state)) {
         const tz = getUserCurrentTimezone(makeGetUserTimezone()(state, getCurrentUserId(state))) ?? undefined;
         if (tz !== prevTimezone) {
             prevTimezone = tz;
-            Settings.defaultZone = tz ?? 'system';
+            moment.tz.setDefault(tz ?? 'system');
         }
     }
 }
