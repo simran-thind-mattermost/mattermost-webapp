@@ -2,7 +2,7 @@
 // See LICENSE.txt for license information.
 
 import React from 'react';
-import {useIntl} from 'react-intl';
+import {useIntl, IntlFormatters} from 'react-intl';
 import {useSelector, useDispatch} from 'react-redux';
 
 import Markdown from 'components/markdown';
@@ -59,6 +59,68 @@ const btnStyle = {
 const messageStyle = {
     marginBottom: '16px',
 };
+
+function featureIdToName(feature: string, formatMessage: IntlFormatters['formatMessage']): string {
+    switch (feature) {
+    case NonAdminPaidFeatures.GUEST_ACCOUNTS:
+        return formatMessage({
+            id: 'request_upgrade_reason.guest_accounts',
+            defaultMessage: 'Guest Accounts',
+        });
+    case NonAdminPaidFeatures.CUSTOM_USER_GROUPS:
+        return formatMessage({
+            id: 'request_upgrade_reason.custom_user_groups',
+            defaultMessage: 'Custom User groups',
+        });
+    case NonAdminPaidFeatures.CREATE_MULTIPLE_TEAMS:
+        return formatMessage({
+            id: 'request_upgrade_reason.create_multiple_teams',
+            defaultMessage: 'Create Multiple Teams',
+        });
+    case NonAdminPaidFeatures.START_CALL:
+        return formatMessage({
+            id: 'request_upgrade_reason.start_call',
+            defaultMessage: 'Start call',
+        });
+    case NonAdminPaidFeatures.PLAYBOOKS_RETRO:
+        return formatMessage({
+            id: 'request_upgrade_reason.playbooks_retro',
+            defaultMessage: 'Playbooks Retrospective',
+        });
+    case NonAdminPaidFeatures.UNLIMITED_MESSAGES:
+        return formatMessage({
+            id: 'request_upgrade_reason.unlimited_messages',
+            defaultMessage: 'Unlimited Messages',
+        });
+    case NonAdminPaidFeatures.UNLIMITED_FILE_STORAGE:
+        return formatMessage({
+            id: 'request_upgrade_reason.unlimited_file_storage',
+            defaultMessage: 'Unlimited File Storage',
+        });
+    case NonAdminPaidFeatures.UNLIMITED_INTEGRATIONS:
+        return formatMessage({
+            id: 'request_upgrade_reason.unlimited_integrations',
+            defaultMessage: 'Unlimited Integrations',
+        });
+    case NonAdminPaidFeatures.UNLIMITED_BOARD_CARDS:
+        return formatMessage({
+            id: 'request_upgrade_reason.unlimited_board_cards',
+            defaultMessage: 'Unlimited Board cards',
+        });
+    case NonAdminPaidFeatures.ALL_PROFESSIONAL_FEATURES:
+        return formatMessage({
+            id: 'request_upgrade_reason.all_professional_features',
+            defaultMessage: 'All Professional features',
+        });
+    case NonAdminPaidFeatures.ALL_ENTERPRISE_FEATURES:
+        return formatMessage({
+            id: 'request_upgrade_reason.all_enterprise_features',
+            defaultMessage: 'All Enterprise features',
+        });
+    default:
+        return '';
+    }
+}
 
 export default function OpenPricingModalPost(props: {post: Post}) {
     let allProfessional = true;
@@ -143,30 +205,30 @@ export default function OpenPricingModalPost(props: {post: Post}) {
     };
 
     if (requestFeatures) {
-        for (const featureName of Object.keys(requestFeatures)) {
+        for (const featureId of Object.keys(requestFeatures)) {
             const title = (
-                <div id={`${featureName}-title`.replaceAll(' ', '-')}>
+                <div id={`${featureId}-title`.replaceAll(' ', '-')}>
                     <span>
                         <b>
-                            {`${featureName}`}
+                            {featureIdToName(featureId, formatMessage)}
                         </b>
                     </span>
                     <span>
                         <Markdown
-                            message={formatMessage({id: 'postypes.custom_open_pricing_modal_post_renderer.availableOn', defaultMessage: ' - available on the {feature}'}, {feature: mapFeatureToPlan(featureName)})}
+                            message={formatMessage({id: 'postypes.custom_open_pricing_modal_post_renderer.availableOn', defaultMessage: ' - available on the {feature}'}, {feature: mapFeatureToPlan(featureId)})}
                             options={{...markDownOptions, atSumOfMembersMentions: false}}
                         />
                     </span>
                 </div>);
             const subTitle = (
-                <ul id={`${featureName}-subtitle`.replaceAll(' ', '-')}>
+                <ul id={`${featureId}-subtitle`.replaceAll(' ', '-')}>
                     <li>
                         <Markdown
                             postId={props.post.id}
-                            message={formatMessage({id: 'postypes.custom_open_pricing_modal_post_renderer.userRequests', defaultMessage: '{userRequests} requested access to this feature'}, {userRequests: renderUsersThatRequestedFeature(requestFeatures[featureName])})}
+                            message={formatMessage({id: 'postypes.custom_open_pricing_modal_post_renderer.userRequests', defaultMessage: '{userRequests} requested access to this feature'}, {userRequests: renderUsersThatRequestedFeature(requestFeatures[featureId])})}
                             options={markDownOptions}
-                            userIds={getUserIdsForUsersThatRequestedFeature(requestFeatures[featureName])}
-                            messageMetadata={{requestedFeature: featureName}}
+                            userIds={getUserIdsForUsersThatRequestedFeature(requestFeatures[featureId])}
+                            messageMetadata={{requestedFeature: featureId}}
                         />
                     </li>
                 </ul>);
