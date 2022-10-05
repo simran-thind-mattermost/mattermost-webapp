@@ -9,12 +9,12 @@ import semver from 'semver';
 import {viewChannel} from 'mattermost-redux/actions/channels';
 
 import * as GlobalActions from 'actions/global_actions';
-import * as WebSocketActions from 'actions/websocket_actions.jsx';
+import * as WebSocketActions from 'actions/websocket_actions';
 import * as UserAgent from 'utils/user_agent';
 import LoadingScreen from 'components/loading_screen';
 import {getBrowserTimezone} from 'utils/timezone.jsx';
 import store from 'stores/redux_store.jsx';
-import WebSocketClient from 'client/web_websocket_client.jsx';
+import WebSocketClient from 'client/web_websocket_client';
 import BrowserStore from 'stores/browser_store';
 import {UserProfile} from '@mattermost/types/users';
 import {Channel} from '@mattermost/types/channels';

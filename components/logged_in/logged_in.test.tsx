@@ -9,7 +9,7 @@ import BrowserStore from 'stores/browser_store';
 import * as GlobalActions from 'actions/global_actions';
 import {UserProfile} from '@mattermost/types/users';
 
-jest.mock('actions/websocket_actions.jsx', () => ({
+jest.mock('actions/websocket_actions', () => ({
     initialize: jest.fn(),
 }));
 

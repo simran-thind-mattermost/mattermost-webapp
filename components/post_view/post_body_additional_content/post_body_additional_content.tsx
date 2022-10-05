@@ -18,7 +18,7 @@ import EmbeddedBindings from '../embedded_bindings/embedded_bindings';
 import {TextFormattingOptions} from 'utils/text_formatting';
 import PostMessagePreview from 'components/post_view/post_message_preview';
 
-import webSocketClient from 'client/web_websocket_client.jsx';
+import webSocketClient from 'client/web_websocket_client';
 
 export type Props = {
     post: Post;

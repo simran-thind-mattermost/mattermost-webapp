@@ -571,7 +571,7 @@ export const SocketEvents = {
     THREAD_UPDATED: 'thread_updated',
     THREAD_FOLLOW_CHANGED: 'thread_follow_changed',
     THREAD_READ_CHANGED: 'thread_read_changed',
-};
+} as const;
 
 export const TutorialSteps = {
     ADD_FIRST_CHANNEL: -1,

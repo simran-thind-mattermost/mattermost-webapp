@@ -5,6 +5,11 @@
 
 import {batchActions} from 'redux-batched-actions';
 
+import {GlobalState} from '@mattermost/types/store';
+import {Team} from '@mattermost/types/teams';
+import {UserProfile} from '@mattermost/types/users';
+import {PreferenceType} from '@mattermost/types/preferences';
+
 import {
     ChannelTypes,
     EmojiTypes,
@@ -102,7 +107,7 @@ import {handleNewPost} from 'actions/post_actions';
 import * as StatusActions from 'actions/status_actions';
 import {loadProfilesForSidebar} from 'actions/user_actions';
 import store from 'stores/redux_store.jsx';
-import WebSocketClient from 'client/web_websocket_client.jsx';
+import WebSocketClient from 'client/web_websocket_client';
 import {loadPlugin, loadPluginsIfNecessary, removePlugin} from 'plugins';
 import {ActionTypes, Constants, AnnouncementBarMessages, SocketEvents, UserStatuses, ModalIdentifiers, WarnMetricTypes} from 'utils/constants';
 import {getSiteURL} from 'utils/url';
@@ -112,13 +117,22 @@ import InteractiveDialog from 'components/interactive_dialog';
 import {
     getTeamsUsage,
 } from 'actions/cloud';
+import { DispatchFunc, GetStateFunc } from 'mattermost-redux/types/actions';
+import { GroupChannel } from '@mattermost/types/groups';
+import { NewPostMessageProps } from './new_post';
+
+declare global {
+    interface Window {
+        logPostEvents?: boolean;
+    }
+}
 
 const dispatch = store.dispatch;
 const getState = store.getState;
 
 const MAX_WEBSOCKET_FAILS = 7;
 
-const pluginEventHandlers = {};
+const pluginEventHandlers: Record<string, Record<string, (msg: WebsocketMessage) => void>> = {};
 
 export function initialize() {
     if (!window.WebSocket) {
@@ -131,25 +145,25 @@ export function initialize() {
     if (config.WebsocketURL) {
         connUrl = config.WebsocketURL;
     } else {
-        connUrl = new URL(getSiteURL());
+        let connUrlBuilder = new URL(getSiteURL());
 
         // replace the protocol with a websocket one
-        if (connUrl.protocol === 'https:') {
-            connUrl.protocol = 'wss:';
+        if (connUrlBuilder.protocol === 'https:') {
+            connUrlBuilder.protocol = 'wss:';
         } else {
-            connUrl.protocol = 'ws:';
+            connUrlBuilder.protocol = 'ws:';
         }
 
         // append a port number if one isn't already specified
-        if (!(/:\d+$/).test(connUrl.host)) {
-            if (connUrl.protocol === 'wss:') {
-                connUrl.host += ':' + config.WebsocketSecurePort;
+        if (!(/:\d+$/).test(connUrlBuilder.host)) {
+            if (connUrlBuilder.protocol === 'wss:') {
+                connUrlBuilder.host += ':' + config.WebsocketSecurePort;
             } else {
-                connUrl.host += ':' + config.WebsocketPort;
+                connUrlBuilder.host += ':' + config.WebsocketPort;
             }
         }
 
-        connUrl = connUrl.toString();
+        connUrl = connUrlBuilder.toString();
     }
 
     // Strip any trailing slash before appending the pathname below.
@@ -177,13 +191,13 @@ function reconnectWebSocket() {
     initialize();
 }
 
-const pluginReconnectHandlers = {};
+const pluginReconnectHandlers: Record<string, () => void> = {};
 
-export function registerPluginReconnectHandler(pluginId, handler) {
+export function registerPluginReconnectHandler(pluginId: string, handler: () => void) {
     pluginReconnectHandlers[pluginId] = handler;
 }
 
-export function unregisterPluginReconnectHandler(pluginId) {
+export function unregisterPluginReconnectHandler(pluginId: string) {
     Reflect.deleteProperty(pluginReconnectHandlers, pluginId);
 }
 
@@ -210,7 +224,7 @@ export function reconnect(includeWebSocket = true) {
         const currentUserId = getCurrentUserId(state);
         const currentChannelId = getCurrentChannelId(state);
         const mostRecentId = getMostRecentPostIdInChannel(state, currentChannelId);
-        const mostRecentPost = getPost(state, mostRecentId);
+        const mostRecentPost = getPost(state, mostRecentId || '');
 
         if (appsFeatureFlagEnabled(state)) {
             dispatch(handleRefreshAppsBindings());
@@ -258,7 +272,7 @@ export function reconnect(includeWebSocket = true) {
     dispatch(clearErrors());
 }
 
-function syncThreads(teamId, userId) {
+function syncThreads(teamId: string, userId: string) {
     const state = getState();
     const newestThread = getNewestThreadInTeam(state, teamId);
 
@@ -269,14 +283,14 @@ function syncThreads(teamId, userId) {
     dispatch(getCountsAndThreadsSince(userId, teamId, newestThread.last_reply_at));
 }
 
-export function registerPluginWebSocketEvent(pluginId, event, action) {
+export function registerPluginWebSocketEvent(pluginId: string, event: string, action: () => void) {
     if (!pluginEventHandlers[pluginId]) {
         pluginEventHandlers[pluginId] = {};
     }
     pluginEventHandlers[pluginId][event] = action;
 }
 
-export function unregisterPluginWebSocketEvent(pluginId, event) {
+export function unregisterPluginWebSocketEvent(pluginId: string, event: string) {
     const events = pluginEventHandlers[pluginId];
     if (!events) {
         return;
@@ -285,7 +299,7 @@ export function unregisterPluginWebSocketEvent(pluginId, event) {
     Reflect.deleteProperty(events, event);
 }
 
-export function unregisterAllPluginWebSocketEvents(pluginId) {
+export function unregisterAllPluginWebSocketEvents(pluginId: string) {
     Reflect.deleteProperty(pluginEventHandlers, pluginId);
 }
 
@@ -295,11 +309,11 @@ function handleFirstConnect() {
             type: GeneralTypes.WEBSOCKET_SUCCESS,
             timestamp: Date.now(),
         },
-        clearErrors(),
+        clearErrors() as any,
     ]));
 }
 
-function handleClose(failCount) {
+function handleClose(failCount: number) {
     if (failCount > MAX_WEBSOCKET_FAILS) {
         dispatch(logError({type: 'critical', message: AnnouncementBarMessages.WEBSOCKET_PORT_ERROR}, true));
     }
@@ -308,11 +322,311 @@ function handleClose(failCount) {
             type: GeneralTypes.WEBSOCKET_FAILURE,
             timestamp: Date.now(),
         },
-        incrementWsErrorCount(),
+        incrementWsErrorCount() as any,
     ]));
 }
 
-export function handleEvent(msg) {
+interface Broadcast {
+    channel_id: string;
+    team_id: string;
+    user_id: string;
+}
+
+type WebsocketMessage =
+    | PostedMessage
+    | EphemeralMessage
+    | PostEditedMessage
+    | PostDeletedMessage
+    | PostUnreadMessage
+    | LeaveTeamMessage
+    | UpdateTeamMessage
+    | UpdateTeamSchemeMessage
+    | DeleteTeamMessage
+    | AddedToTeamMessage
+    | UserAddedMessage
+    | UserRemovedMessage
+    | UserUpdatedMessage
+    | RoleAddedMessage
+    | RoleRemovedMessage
+    | ChannelSchemeUpdatedMessage
+    | MemberRoleUpdatedMessage
+    | RoleUpdatedMessage
+    | ChannelCreatedMessage
+    | ChannelDeletedMessage
+    | ChannelUnarchivedMessage
+    | ChannelConvertedMessage
+    | ChannelUpdatedMessage
+    | ChannelMemberUpdatedMessage 
+    | DirectAddedMessage 
+    | GroupAddedMessage 
+    | PreferenceChangedMessage
+    | PreferencesChangedMessage
+    | PreferencesDeletedMessage
+    | StatusChangedMessage
+    | HelloMessage
+    | ReactionAddedMessage 
+    | ReactionRemovedMessage
+    | EmojiAddedMessage
+    | ChannelViewedMessage 
+| PostedMessage; // TODO: remove duplicated variant, only added to make coding easier before PR
+
+interface PostedMessage {
+    event: typeof SocketEvents['POSTED'];
+    data: {
+        post: string;
+        set_online: boolean;
+    } & GroupChannel & NewPostMessageProps;
+}
+
+interface EphemeralMessage {
+    event: typeof SocketEvents['EPHEMERAL_MESSAGE'];
+    data: {
+        post: string;
+        set_online: boolean;
+    } & GroupChannel & NewPostMessageProps;
+}
+
+interface PostEditedMessage {
+    event: typeof SocketEvents['POST_EDITED'];
+    broadcast: Broadcast;
+    data: {
+        post: string;
+    }
+}
+
+interface PostDeletedMessage {
+    event: typeof SocketEvents['POST_DELETED'];
+    data: {
+        post: string;
+    }
+}
+
+interface PostUnreadMessage {
+    event: typeof SocketEvents['POST_UNREAD'];
+    data: {
+        last_viewed_at: number
+        msg_count: number;
+        msg_count_root: string;
+        mention_count: number;
+        mention_count_root: string;
+    }
+    broadcast: Broadcast;
+}
+
+interface LeaveTeamMessage {
+    event: typeof SocketEvents['LEAVE_TEAM'];
+    data: {
+        team_id: string;
+        user_id: string;
+    }
+}
+
+interface UpdateTeamMessage {
+    event: typeof SocketEvents['UPDATE_TEAM'];
+    data: {
+        team: string;
+    }
+}
+
+interface UpdateTeamSchemeMessage {
+    event: typeof SocketEvents['UPDATE_TEAM_SCHEME'];
+}
+
+interface DeleteTeamMessage {
+    event: typeof SocketEvents['DELETE_TEAM'];
+    data: {
+        team: string;
+    }
+}
+
+interface AddedToTeamMessage {
+    event: typeof SocketEvents['ADDED_TO_TEAM'];
+    data: {
+        team_id: string;
+    }
+}
+
+interface UserAddedMessage {
+    event: typeof SocketEvents['USER_ADDED'];
+    data: {
+        user_id: string;
+        team_id: string;
+    }
+    broadcast: Broadcast;
+}
+
+interface UserRemovedMessage {
+    event: typeof SocketEvents['USER_REMOVED'];
+    broadcast: Broadcast;
+    data: {
+        user_id: string;
+        channel_id: string;
+        remover_id: string;
+    }
+}
+
+interface UserUpdatedMessage {
+    event: typeof SocketEvents['USER_UPDATED'];
+    data: {
+        user: UserProfile;
+    }
+}
+
+interface RoleAddedMessage {
+    event: typeof SocketEvents['ROLE_ADDED'];
+    data: {
+        role: string;
+    }
+}
+
+interface RoleRemovedMessage {
+    event: typeof SocketEvents['ROLE_REMOVED'];
+    data: {
+        role: string;
+    }
+}
+
+interface ChannelSchemeUpdatedMessage {
+    event: typeof SocketEvents['CHANNEL_SCHEME_UPDATED'];
+    broadcast: Broadcast;
+}
+
+interface MemberRoleUpdatedMessage {
+    event: typeof SocketEvents['MEMBERROLE_UPDATED'];
+    data: {
+        member: string;
+    }
+}
+
+interface RoleUpdatedMessage {
+    event: typeof SocketEvents['ROLE_UPDATED'];
+    data: {
+        role: string;
+    }
+}
+
+interface ChannelCreatedMessage {
+    event: typeof SocketEvents['CHANNEL_CREATED'];
+    data: {
+        channel_id: string;
+        team_id: string;
+    }
+}
+
+interface ChannelDeletedMessage {
+    event: typeof SocketEvents['CHANNEL_DELETED'];
+    data: {
+        channel_id: string;
+        delete_at: number;
+    }
+    broadcast: Broadcast;
+}
+
+interface ChannelUnarchivedMessage {
+    event: typeof SocketEvents['CHANNEL_UNARCHIVED'];
+    data: {
+        channel_id: string;
+    }
+    broadcast: Broadcast;
+}
+
+interface ChannelConvertedMessage {
+    event: typeof SocketEvents['CHANNEL_CONVERTED'];
+    data: {
+        channel_id: string;
+    }
+}
+
+interface ChannelUpdatedMessage {
+    event: typeof SocketEvents['CHANNEL_UPDATED'];
+    data: {
+        channel: string;
+    }
+}
+
+interface ChannelMemberUpdatedMessage {
+    event: typeof SocketEvents['CHANNEL_MEMBER_UPDATED'];
+    data: {
+        channelMember: string;
+    }
+}
+
+interface DirectAddedMessage {
+    event: typeof SocketEvents['DIRECT_ADDED'];
+    broadcast: Broadcast;
+}
+
+interface GroupAddedMessage {
+    event: typeof SocketEvents['GROUP_ADDED'];
+    broadcast: Broadcast;
+}
+
+interface PreferenceChangedMessage {
+    event: typeof SocketEvents['PREFERENCE_CHANGED'];
+    data: {
+        preference: string;
+    }
+}
+
+interface PreferencesChangedMessage {
+    event: typeof SocketEvents['PREFERENCES_CHANGED'];
+    data: {
+        preferences: string;
+    }
+}
+
+interface PreferencesDeletedMessage {
+    event: typeof SocketEvents['PREFERENCES_DELETED'];
+    data: {
+        preferences: string;
+    }
+}
+
+interface StatusChangedMessage {
+    event: typeof SocketEvents['STATUS_CHANGED'];
+    data: {
+        user_id: string;
+        status: string;
+    }
+}
+
+interface HelloMessage {
+    event: typeof SocketEvents['HELLO'];
+    data: {
+        server_version: string;
+    }
+}
+
+interface ReactionAddedMessage {
+    event: typeof SocketEvents['REACTION_ADDED'];
+    data: {
+        reaction: string;
+    }
+}
+
+interface ReactionRemovedMessage {
+    event: typeof SocketEvents['REACTION_REMOVED'];
+    data: {
+        reaction: string;
+    }
+}
+
+interface EmojiAddedMessage {
+    event: typeof SocketEvents['EMOJI_ADDED'];
+    data: {
+        emoji: string;
+    }
+}
+
+interface ChannelViewedMessage {
+    event: typeof SocketEvents['CHANNEL_VIEWED'];
+    data: {
+        channel_id: string;
+    }
+    broadcast: Broadcast;
+}
+
+export function handleEvent(msg: WebsocketMessage) {
     switch (msg.event) {
     case SocketEvents.POSTED:
     case SocketEvents.EPHEMERAL_MESSAGE:
@@ -340,7 +654,7 @@ export function handleEvent(msg) {
         break;
 
     case SocketEvents.UPDATE_TEAM_SCHEME:
-        handleUpdateTeamSchemeEvent(msg);
+        handleUpdateTeamSchemeEvent();
         break;
 
     case SocketEvents.DELETE_TEAM:
@@ -537,7 +851,7 @@ export function handleEvent(msg) {
         dispatch(handleUserActivationStatusChange());
         break;
     case SocketEvents.CLOUD_PAYMENT_STATUS_UPDATED:
-        dispatch(handleCloudPaymentStatusUpdated(msg));
+        dispatch(handleCloudPaymentStatusUpdated());
         break;
     case SocketEvents.CLOUD_SUBSCRIPTION_CHANGED:
         dispatch(handleCloudSubscriptionChanged(msg));
@@ -564,6 +878,9 @@ export function handleEvent(msg) {
         dispatch(handleAppsPluginDisabled());
         break;
     default:
+        const invalidMessage: never = msg;
+        // eslint-disable-next-line no-console
+        console.warn(`invalid message: ${invalidMessage}`);
     }
 
     Object.values(pluginEventHandlers).forEach((pluginEvents) => {
@@ -578,7 +895,7 @@ export function handleEvent(msg) {
 }
 
 // handleChannelConvertedEvent handles updating of channel which is converted from public to private
-function handleChannelConvertedEvent(msg) {
+function handleChannelConvertedEvent(msg: ChannelConvertedMessage) {
     const channelId = msg.data.channel_id;
     if (channelId) {
         const channel = getChannel(getState(), channelId);
@@ -591,8 +908,8 @@ function handleChannelConvertedEvent(msg) {
     }
 }
 
-export function handleChannelUpdatedEvent(msg) {
-    return (doDispatch, doGetState) => {
+export function handleChannelUpdatedEvent(msg: ChannelUpdatedMessage) {
+    return (doDispatch: DispatchFunc, doGetState: GetStateFunc) => {
         const channel = JSON.parse(msg.data.channel);
 
         doDispatch({type: ChannelTypes.RECEIVED_CHANNEL, data: channel});
@@ -604,16 +921,16 @@ export function handleChannelUpdatedEvent(msg) {
     };
 }
 
-function handleChannelMemberUpdatedEvent(msg) {
+function handleChannelMemberUpdatedEvent(msg: ChannelMemberUpdatedMessage) {
     const channelMember = JSON.parse(msg.data.channelMember);
     const roles = channelMember.roles.split(' ');
     dispatch(loadRolesIfNeeded(roles));
     dispatch({type: ChannelTypes.RECEIVED_MY_CHANNEL_MEMBER, data: channelMember});
 }
 
-function debouncePostEvent(wait) {
-    let timeout;
-    let queue = [];
+function debouncePostEvent(wait: number) {
+    let timeout: null | ReturnType<typeof setTimeout> = null;
+    let queue: PostedMessage[] = [];
     let count = 0;
 
     // Called when timeout triggered
@@ -642,7 +959,7 @@ function debouncePostEvent(wait) {
             // Apply immediately for events up until count reaches limit
             count += 1;
             dispatch(handleNewPostEvent(msg));
-            clearTimeout(timeout);
+            clearTimeout(timeout!);
             timeout = setTimeout(triggered, wait);
         }
     };
@@ -650,8 +967,8 @@ function debouncePostEvent(wait) {
 
 const handleNewPostEventDebounced = debouncePostEvent(100);
 
-export function handleNewPostEvent(msg) {
-    return (myDispatch, myGetState) => {
+export function handleNewPostEvent(msg: PostedMessage) {
+    return (myDispatch: DispatchFunc, myGetState: GetStateFunc) => {
         const post = JSON.parse(msg.data.post);
 
         if (window.logPostEvents) {
@@ -681,8 +998,8 @@ export function handleNewPostEvent(msg) {
     };
 }
 
-export function handleNewPostEvents(queue) {
-    return (myDispatch, myGetState) => {
+export function handleNewPostEvents(queue: PostedMessage[]) {
+    return (myDispatch: DispatchFunc, myGetState: GetStateFunc) => {
         // Note that this method doesn't properly update the sidebar state for these posts
         const posts = queue.map((msg) => JSON.parse(msg.data.post));
 
@@ -704,7 +1021,7 @@ export function handleNewPostEvents(queue) {
     };
 }
 
-export function handlePostEditEvent(msg) {
+export function handlePostEditEvent(msg: PostEditedMessage) {
     // Store post
     const post = JSON.parse(msg.data.post);
 
@@ -728,7 +1045,7 @@ export function handlePostEditEvent(msg) {
     }
 }
 
-async function handlePostDeleteEvent(msg) {
+async function handlePostDeleteEvent(msg: PostDeletedMessage) {
     const post = JSON.parse(msg.data.post);
 
     if (window.logPostEvents) {
@@ -765,7 +1082,7 @@ async function handlePostDeleteEvent(msg) {
     }
 }
 
-export function handlePostUnreadEvent(msg) {
+export function handlePostUnreadEvent(msg: PostUnreadMessage) {
     dispatch(
         {
             type: ActionTypes.POST_UNREAD_SUCCESS,
@@ -781,7 +1098,7 @@ export function handlePostUnreadEvent(msg) {
     );
 }
 
-async function handleTeamAddedEvent(msg) {
+async function handleTeamAddedEvent(msg: AddedToTeamMessage) {
     await dispatch(TeamActions.getTeam(msg.data.team_id));
     await dispatch(TeamActions.getMyTeamMembers());
     const state = getState();
@@ -792,7 +1109,7 @@ async function handleTeamAddedEvent(msg) {
     }
 }
 
-export function handleLeaveTeamEvent(msg) {
+export function handleLeaveTeamEvent(msg: LeaveTeamMessage) {
     const state = getState();
 
     const actions = [
@@ -850,7 +1167,7 @@ export function handleLeaveTeamEvent(msg) {
     }
 }
 
-function handleUpdateTeamEvent(msg) {
+function handleUpdateTeamEvent(msg: UpdateTeamMessage) {
     const state = store.getState();
     const license = getLicense(state);
     dispatch({type: TeamTypes.UPDATED_TEAM, data: JSON.parse(msg.data.team)});
@@ -863,9 +1180,9 @@ function handleUpdateTeamSchemeEvent() {
     dispatch(TeamActions.getMyTeamMembers());
 }
 
-function handleDeleteTeamEvent(msg) {
+function handleDeleteTeamEvent(msg: DeleteTeamMessage) {
     const deletedTeam = JSON.parse(msg.data.team);
-    const state = store.getState();
+    const state: GlobalState = store.getState();
     const {teams} = state.entities.teams;
     const license = getLicense(state);
     if (license.Cloud === 'true') {
@@ -888,7 +1205,7 @@ function handleDeleteTeamEvent(msg) {
             teamMember &&
             deletedTeam.id === teamMember.team_id
         ) {
-            const myTeams = {};
+            const myTeams: Record<string, Team> = {};
             getMyTeams(state).forEach((t) => {
                 myTeams[t.id] = t;
             });
@@ -925,7 +1242,7 @@ function handleDeleteTeamEvent(msg) {
     }
 }
 
-function handleUpdateMemberRoleEvent(msg) {
+function handleUpdateMemberRoleEvent(msg: MemberRoleUpdatedMessage) {
     const memberData = JSON.parse(msg.data.member);
     const newRoles = memberData.roles.split(' ');
 
@@ -937,16 +1254,16 @@ function handleUpdateMemberRoleEvent(msg) {
     });
 }
 
-function handleDirectAddedEvent(msg) {
+function handleDirectAddedEvent(msg: DirectAddedMessage) {
     return fetchChannelAndAddToSidebar(msg.broadcast.channel_id);
 }
 
-function handleGroupAddedEvent(msg) {
+function handleGroupAddedEvent(msg: GroupAddedMessage) {
     return fetchChannelAndAddToSidebar(msg.broadcast.channel_id);
 }
 
-function handleUserAddedEvent(msg) {
-    return async (doDispatch, doGetState) => {
+function handleUserAddedEvent(msg: UserAddedMessage) {
+    return async (doDispatch: DispatchFunc, doGetState: GetStateFunc) => {
         const state = doGetState();
         const config = getConfig(state);
         const license = getLicense(state);
@@ -977,17 +1294,18 @@ function handleUserAddedEvent(msg) {
     };
 }
 
-function fetchChannelAndAddToSidebar(channelId) {
-    return async (doDispatch) => {
+function fetchChannelAndAddToSidebar(channelId: string) {
+    return async (doDispatch: DispatchFunc) => {
         const {data, error} = await doDispatch(getChannelAndMyMember(channelId));
 
         if (!error) {
             doDispatch(addChannelToInitialCategory(data.channel));
         }
+        return {data: true};
     };
 }
 
-export function handleUserRemovedEvent(msg) {
+export function handleUserRemovedEvent(msg: UserRemovedMessage) {
     const state = getState();
     const currentChannel = getCurrentChannel(state) || {};
     const currentUser = getCurrentUser(state);
@@ -1086,7 +1404,7 @@ export function handleUserRemovedEvent(msg) {
     }
 }
 
-export async function handleUserUpdatedEvent(msg) {
+export async function handleUserUpdatedEvent(msg: UserUpdatedMessage) {
     // This websocket event is sent to all non-guest users on the server, so be careful requesting data from the server
     // in response to it. That can overwhelm the server if every connected user makes such a request at the same time.
     // See https://mattermost.atlassian.net/browse/MM-40050 for more information.
@@ -1116,7 +1434,7 @@ export async function handleUserUpdatedEvent(msg) {
     }
 }
 
-function handleRoleAddedEvent(msg) {
+function handleRoleAddedEvent(msg: RoleAddedMessage) {
     const role = JSON.parse(msg.data.role);
 
     dispatch({
@@ -1125,7 +1443,7 @@ function handleRoleAddedEvent(msg) {
     });
 }
 
-function handleRoleRemovedEvent(msg) {
+function handleRoleRemovedEvent(msg: RoleRemovedMessage) {
     const role = JSON.parse(msg.data.role);
 
     dispatch({
@@ -1134,11 +1452,11 @@ function handleRoleRemovedEvent(msg) {
     });
 }
 
-function handleChannelSchemeUpdatedEvent(msg) {
+function handleChannelSchemeUpdatedEvent(msg: ChannelSchemeUpdatedMessage) {
     dispatch(getMyChannelMember(msg.broadcast.channel_id));
 }
 
-function handleRoleUpdatedEvent(msg) {
+function handleRoleUpdatedEvent(msg: RoleUpdatedMessage) {
     const role = JSON.parse(msg.data.role);
 
     dispatch({
@@ -1147,8 +1465,8 @@ function handleRoleUpdatedEvent(msg) {
     });
 }
 
-function handleChannelCreatedEvent(msg) {
-    return async (myDispatch, myGetState) => {
+function handleChannelCreatedEvent(msg: ChannelCreatedMessage) {
+    return async (myDispatch: DispatchFunc, myGetState: GetStateFunc) => {
         const channelId = msg.data.channel_id;
         const teamId = msg.data.team_id;
         const state = myGetState();
@@ -1167,7 +1485,7 @@ function handleChannelCreatedEvent(msg) {
     };
 }
 
-function handleChannelDeletedEvent(msg) {
+function handleChannelDeletedEvent(msg: ChannelDeletedMessage) {
     const state = getState();
     const config = getConfig(state);
     const viewArchivedChannels = config.ExperimentalViewArchivedChannels === 'true';
@@ -1181,7 +1499,7 @@ function handleChannelDeletedEvent(msg) {
     dispatch({type: ChannelTypes.RECEIVED_CHANNEL_DELETED, data: {id: msg.data.channel_id, team_id: msg.broadcast.team_id, deleteAt: msg.data.delete_at, viewArchivedChannels}});
 }
 
-function handleChannelUnarchivedEvent(msg) {
+function handleChannelUnarchivedEvent(msg: ChannelUnarchivedMessage) {
     const state = getState();
     const config = getConfig(state);
     const viewArchivedChannels = config.ExperimentalViewArchivedChannels === 'true';
@@ -1189,7 +1507,7 @@ function handleChannelUnarchivedEvent(msg) {
     dispatch({type: ChannelTypes.RECEIVED_CHANNEL_UNARCHIVED, data: {id: msg.data.channel_id, team_id: msg.broadcast.team_id, viewArchivedChannels}});
 }
 
-function handlePreferenceChangedEvent(msg) {
+function handlePreferenceChangedEvent(msg: PreferenceChangedMessage) {
     const preference = JSON.parse(msg.data.preference);
     dispatch({type: PreferenceTypes.RECEIVED_PREFERENCES, data: [preference]});
 
@@ -1198,7 +1516,7 @@ function handlePreferenceChangedEvent(msg) {
     }
 }
 
-function handlePreferencesChangedEvent(msg) {
+function handlePreferencesChangedEvent(msg: PreferencesChangedMessage) {
     const preferences = JSON.parse(msg.data.preferences);
     dispatch({type: PreferenceTypes.RECEIVED_PREFERENCES, data: preferences});
 
@@ -1207,27 +1525,27 @@ function handlePreferencesChangedEvent(msg) {
     }
 }
 
-function handlePreferencesDeletedEvent(msg) {
+function handlePreferencesDeletedEvent(msg: PreferencesDeletedMessage) {
     const preferences = JSON.parse(msg.data.preferences);
     dispatch({type: PreferenceTypes.DELETED_PREFERENCES, data: preferences});
 }
 
-function addedNewDmUser(preference) {
+function addedNewDmUser(preference: PreferenceType) {
     return preference.category === Constants.Preferences.CATEGORY_DIRECT_CHANNEL_SHOW && preference.value === 'true';
 }
 
-function handleStatusChangedEvent(msg) {
+function handleStatusChangedEvent(msg: StatusChangedMessage) {
     dispatch({
         type: UserTypes.RECEIVED_STATUSES,
         data: [{user_id: msg.data.user_id, status: msg.data.status}],
     });
 }
 
-function handleHelloEvent(msg) {
+function handleHelloEvent(msg: HelloMessage) {
     setServerVersion(msg.data.server_version)(dispatch, getState);
 }
 
-function handleReactionAddedEvent(msg) {
+function handleReactionAddedEvent(msg: ReactionAddedMessage) {
     const reaction = JSON.parse(msg.data.reaction);
 
     dispatch(getCustomEmojiForReaction(reaction.emoji_name));
@@ -1238,7 +1556,7 @@ function handleReactionAddedEvent(msg) {
     });
 }
 
-function handleAddEmoji(msg) {
+function handleAddEmoji(msg: EmojiAddedMessage) {
     const data = JSON.parse(msg.data.emoji);
 
     dispatch({
@@ -1247,7 +1565,7 @@ function handleAddEmoji(msg) {
     });
 }
 
-function handleReactionRemovedEvent(msg) {
+function handleReactionRemovedEvent(msg: ReactionRemovedMessage) {
     const reaction = JSON.parse(msg.data.reaction);
 
     dispatch({
@@ -1256,7 +1574,7 @@ function handleReactionRemovedEvent(msg) {
     });
 }
 
-function handleChannelViewedEvent(msg) {
+function handleChannelViewedEvent(msg: ChannelViewedMessage) {
     // Useful for when multiple devices have the app open to different channels
     if ((!window.isActive || getCurrentChannelId(getState()) !== msg.data.channel_id) &&
         getCurrentUserId(getState()) === msg.broadcast.user_id) {

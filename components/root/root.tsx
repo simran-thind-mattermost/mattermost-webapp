@@ -45,7 +45,7 @@ import Constants, {StoragePrefixes, WindowSizes} from 'utils/constants';
 import {EmojiIndicesByAlias} from 'utils/emoji.jsx';
 import * as UserAgent from 'utils/user_agent';
 import * as Utils from 'utils/utils';
-import webSocketClient from 'client/web_websocket_client.jsx';
+import webSocketClient from 'client/web_websocket_client';
 
 const LazyErrorPage = React.lazy(() => import('components/error_page'));
 const LazyLogin = React.lazy(() => import('components/login/login'));

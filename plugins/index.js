@@ -14,7 +14,7 @@ import store from 'stores/redux_store.jsx';
 import {ActionTypes} from 'utils/constants';
 import {getSiteURL} from 'utils/url';
 import PluginRegistry from 'plugins/registry';
-import {unregisterAllPluginWebSocketEvents, unregisterPluginReconnectHandler} from 'actions/websocket_actions.jsx';
+import {unregisterAllPluginWebSocketEvents, unregisterPluginReconnectHandler} from 'actions/websocket_actions';
 import {unregisterPluginTranslationsSource} from 'actions/views/root';
 import {unregisterAdminConsolePlugin} from 'actions/admin_actions';
 import {trackPluginInitialization} from 'actions/telemetry_actions';

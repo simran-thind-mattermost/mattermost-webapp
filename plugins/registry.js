@@ -10,7 +10,7 @@ import {
     unregisterPluginWebSocketEvent,
     registerPluginReconnectHandler,
     unregisterPluginReconnectHandler,
-} from 'actions/websocket_actions.jsx';
+} from 'actions/websocket_actions';
 
 import {showRHSPlugin, hideRHSPlugin, toggleRHSPlugin} from 'actions/views/rhs';
 
